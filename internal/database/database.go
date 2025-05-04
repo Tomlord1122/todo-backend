@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -11,21 +10,22 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/joho/godotenv/autoload"
+
+	// GORM imports
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger" // Optional: for GORM logging
 )
 
-// Service represents a service that interacts with a database.
+// Service interface might need adjustment depending on what you expose
 type Service interface {
-	// Health returns a map of health status information.
-	// The keys and values in the map are service-specific.
 	Health() map[string]string
-
-	// Close terminates the database connection.
-	// It returns an error if the connection cannot be closed.
-	Close() error
+	Close() error    // May not be needed or different with GORM connection pool
+	GetDB() *gorm.DB // Method to get the GORM DB instance
 }
 
 type service struct {
-	db *sql.DB
+	db *gorm.DB
 }
 
 var (
@@ -34,40 +34,79 @@ var (
 	username   = os.Getenv("BLUEPRINT_DB_USERNAME")
 	port       = os.Getenv("BLUEPRINT_DB_PORT")
 	host       = os.Getenv("BLUEPRINT_DB_HOST")
-	schema     = os.Getenv("BLUEPRINT_DB_SCHEMA")
+	schema     = os.Getenv("BLUEPRINT_DB_SCHEMA") // Optional, GORM can handle schema in DSN
 	dbInstance *service
 )
 
 func New() Service {
-	// Reuse Connection
 	if dbInstance != nil {
 		return dbInstance
 	}
-	connStr := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable&search_path=%s", username, password, host, port, database, schema)
-	db, err := sql.Open("pgx", connStr)
+
+	// Construct DSN for GORM
+	// Example DSN: "host=localhost user=gorm password=gorm dbname=gorm port=9920 sslmode=disable TimeZone=Asia/Shanghai"
+	// Note: search_path might be handled differently or within the DSN if supported by the driver
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s sslmode=disable",
+		host, username, password, database, port)
+	// Add schema if needed and supported, e.g., append " search_path=" + schema
+
+	// Configure GORM logger (optional, good for development)
+	newLogger := logger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
+		logger.Config{
+			SlowThreshold:             time.Second, // Slow SQL threshold
+			LogLevel:                  logger.Info, // Log level (Silent, Error, Warn, Info)
+			IgnoreRecordNotFoundError: true,        // Ignore ErrRecordNotFound error for logger
+			Colorful:                  true,        // Disable color
+		},
+	)
+
+	// Open GORM connection
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+		Logger: newLogger, // Use the configured logger
+		// Add schema config if needed, e.g., NamingStrategy: schema.NamingStrategy{TablePrefix: schema + "."} but requires testing
+	})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	dbInstance = &service{
-		db: db,
+
+	// Set connection pool settings (important for production)
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Fatalf("Failed to get underlying sql.DB: %v", err)
 	}
+	sqlDB.SetMaxIdleConns(10)           // Max number of idle connections
+	sqlDB.SetMaxOpenConns(100)          // Max number of open connections
+	sqlDB.SetConnMaxLifetime(time.Hour) // Max lifetime of a connection
+
+	dbInstance = &service{db: db}
 	return dbInstance
 }
 
-// Health checks the health of the database connection by pinging the database.
-// It returns a map with keys indicating various health statistics.
+func (s *service) GetDB() *gorm.DB {
+	return s.db
+}
+
+// Health check needs to use the underlying sql.DB from GORM
 func (s *service) Health() map[string]string {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
 	stats := make(map[string]string)
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		stats["status"] = "down"
+		stats["error"] = fmt.Sprintf("failed to get underlying DB for health check: %v", err)
+		log.Printf("Error getting DB for health check: %v", err)
+		return stats
+	}
 
 	// Ping the database
-	err := s.db.PingContext(ctx)
+	err = sqlDB.PingContext(ctx)
 	if err != nil {
 		stats["status"] = "down"
 		stats["error"] = fmt.Sprintf("db down: %v", err)
-		log.Fatalf("db down: %v", err) // Log the error and terminate the program
+		log.Printf("db down: %v", err) // Use Printf for non-fatal errors during health check
 		return stats
 	}
 
@@ -76,7 +115,7 @@ func (s *service) Health() map[string]string {
 	stats["message"] = "It's healthy"
 
 	// Get database stats (like open connections, in use, idle, etc.)
-	dbStats := s.db.Stats()
+	dbStats := sqlDB.Stats()
 	stats["open_connections"] = strconv.Itoa(dbStats.OpenConnections)
 	stats["in_use"] = strconv.Itoa(dbStats.InUse)
 	stats["idle"] = strconv.Itoa(dbStats.Idle)
@@ -85,8 +124,8 @@ func (s *service) Health() map[string]string {
 	stats["max_idle_closed"] = strconv.FormatInt(dbStats.MaxIdleClosed, 10)
 	stats["max_lifetime_closed"] = strconv.FormatInt(dbStats.MaxLifetimeClosed, 10)
 
-	// Evaluate stats to provide a health message
-	if dbStats.OpenConnections > 40 { // Assuming 50 is the max for this example
+	// Evaluate stats (example thresholds)
+	if dbStats.OpenConnections > 80 { // Adjust threshold based on MaxOpenConns
 		stats["message"] = "The database is experiencing heavy load."
 	}
 
@@ -94,22 +133,26 @@ func (s *service) Health() map[string]string {
 		stats["message"] = "The database has a high number of wait events, indicating potential bottlenecks."
 	}
 
-	if dbStats.MaxIdleClosed > int64(dbStats.OpenConnections)/2 {
-		stats["message"] = "Many idle connections are being closed, consider revising the connection pool settings."
+	// These checks might need tuning based on pool settings
+	if dbStats.MaxIdleClosed > int64(dbStats.OpenConnections)/2 && dbStats.OpenConnections > dbStats.Idle {
+		stats["message"] = "Many idle connections are being closed, consider revising the connection pool settings (MaxIdleConns, ConnMaxIdleTime)."
 	}
 
 	if dbStats.MaxLifetimeClosed > int64(dbStats.OpenConnections)/2 {
-		stats["message"] = "Many connections are being closed due to max lifetime, consider increasing max lifetime or revising the connection usage pattern."
+		stats["message"] = "Many connections are being closed due to max lifetime, consider increasing ConnMaxLifetime or revising the connection usage pattern."
 	}
 
 	return stats
 }
 
-// Close closes the database connection.
-// It logs a message indicating the disconnection from the specific database.
-// If the connection is successfully closed, it returns nil.
-// If an error occurs while closing the connection, it returns the error.
+// Close might not be strictly necessary to call manually as GORM manages the pool,
+// but if you need to explicitly close the underlying pool:
 func (s *service) Close() error {
-	log.Printf("Disconnected from database: %s", database)
-	return s.db.Close()
+	sqlDB, err := s.db.DB()
+	if err != nil {
+		log.Printf("Error getting underlying sql.DB for closing: %v", err)
+		return err
+	}
+	log.Printf("Closing connection pool for database: %s", database)
+	return sqlDB.Close()
 }
