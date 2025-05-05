@@ -1,7 +1,7 @@
 package repository
 
 import (
-	"todo-backend/internal/domain"
+	"github.com/Tomlord1122/todo-backend/internal/domain"
 
 	"gorm.io/gorm"
 )

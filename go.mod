@@ -1,4 +1,4 @@
-module todo-backend
+module github.com/Tomlord1122/todo-backend
 
 go 1.24.2
 

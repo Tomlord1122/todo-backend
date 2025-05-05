@@ -9,11 +9,11 @@ import (
 	"syscall"
 	"time"
 
-	"todo-backend/internal/database"
-	"todo-backend/internal/domain" // Import domain for potential AutoMigrate
-	"todo-backend/internal/repository"
-	"todo-backend/internal/server"
-	"todo-backend/internal/service"
+	"github.com/Tomlord1122/todo-backend/internal/database"
+	"github.com/Tomlord1122/todo-backend/internal/domain" // Import domain for potential AutoMigrate
+	"github.com/Tomlord1122/todo-backend/internal/repository"
+	"github.com/Tomlord1122/todo-backend/internal/server"
+	"github.com/Tomlord1122/todo-backend/internal/service"
 
 	_ "github.com/joho/godotenv/autoload" // Keep if loading .env for PORT or DB
 )

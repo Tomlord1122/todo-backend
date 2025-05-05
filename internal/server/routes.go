@@ -14,7 +14,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
-	"todo-backend/internal/service"
+	"github.com/Tomlord1122/todo-backend/internal/service"
 )
 
 func (s *Server) RegisterRoutes() http.Handler {

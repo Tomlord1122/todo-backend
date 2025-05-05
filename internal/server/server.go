@@ -9,8 +9,8 @@ import (
 
 	_ "github.com/joho/godotenv/autoload"
 
-	"todo-backend/internal/database"
-	"todo-backend/internal/service"
+	"github.com/Tomlord1122/todo-backend/internal/database"
+	"github.com/Tomlord1122/todo-backend/internal/service"
 )
 
 type Server struct {

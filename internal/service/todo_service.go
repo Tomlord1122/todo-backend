@@ -5,8 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"time"
-	"todo-backend/internal/domain"
-	"todo-backend/internal/repository"
+
+	"github.com/Tomlord1122/todo-backend/internal/domain"
+	"github.com/Tomlord1122/todo-backend/internal/repository"
 
 	"gorm.io/gorm"
 )
