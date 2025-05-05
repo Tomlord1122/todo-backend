@@ -1,5 +1,4 @@
 root = "."
-testdata_dir = "testdata"
 tmp_dir = "tmp"
 
 [build]
@@ -12,6 +11,7 @@ tmp_dir = "tmp"
   exclude_regex = ["_test.go"]
   exclude_unchanged = false
   follow_symlink = false
+  # air will automatically combine the cmd and bin flags
   full_bin = ""
   include_dir = []
   include_ext = ["go", "tpl", "tmpl", "html"]

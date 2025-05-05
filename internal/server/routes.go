@@ -47,7 +47,7 @@ func (s *Server) RegisterRoutes() http.Handler {
 }
 
 func (s *Server) HelloWorldHandler(w http.ResponseWriter, r *http.Request) {
-	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Hello World from Todo Backend!"})
+	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Hello World"})
 }
 
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
